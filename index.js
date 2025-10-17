@@ -11,6 +11,7 @@ app.use("/auth", require("./routes/authRoutes"));
 app.use("/merchants", require("./routes/merchantRoutes"));
 app.use("/invoice", require("./routes/invoiceRoutes"));
 app.use("/payment", require("./routes/paymentRoutes"));
+app.use("/ledger", require("./routes/ledgerRoutes"));
 
 // Sync DB
 sequelize.sync()

@@ -4,7 +4,7 @@ const Merchant = require("../models/Merchant");
 const Invoice = require("../models/Invoice");
 const InvoiceSettlement = require("../models/InvoiceSettlement");
 const { Op } = require("sequelize");
-const { sequelize } = require("../config/db"); // adjust if needed
+const sequelize = require("../config/db");
 // const { Invoice, Payment, Ledger, InvoiceSettlement } = require("../models");
 
 
@@ -88,7 +88,7 @@ exports.addPayment = async (req, res) => {
         payment_id: payment.id,
         description: data.description,
         oil_type: data.oil_type,
-        credit: data.total_amount,
+        credit: data.amount,
       };
       const ledger = await Ledger.create(ledgerData, { transaction: t });
 
