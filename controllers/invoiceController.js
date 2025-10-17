@@ -2,6 +2,7 @@ const Invoice = require("../models/Invoice");
 const Ledger = require("../models/Ledger");
 const Merchant = require("../models/Merchant");
 const { Op } = require("sequelize");
+const sequelize = require("../config/db");
 
 exports.getAllInvoices = async (req, res) => {
   try {
@@ -37,6 +38,29 @@ exports.getAllInvoices = async (req, res) => {
   } catch (err) {
     res.json({ success: false, message: err.message });
   }
+};
+
+exports.getMerchantBalance = async (req,res)=>{
+    try {
+      const [results] = await sequelize.query(`
+            SELECT 
+            m.name AS merchant_name,
+            SUM(CASE WHEN i.oil_type = 'sarsoo' THEN i.unsettled_amount ELSE 0 END) AS sarsoo,
+            SUM(CASE WHEN i.oil_type = 'pakwan' THEN i.unsettled_amount ELSE 0 END) AS pakwan,
+            SUM(CASE WHEN i.oil_type = 'tilli' THEN i.unsettled_amount ELSE 0 END) AS tilli,
+            SUM(i.unsettled_amount) AS total
+        FROM invoices i
+        INNER JOIN merchants m ON m.id = i.merchant_id
+        WHERE i.unsettled_amount > 0
+        GROUP BY m.name
+        ORDER BY m.name;
+      `);
+  
+      res.json({ success: true, data: results });
+    } catch (err) {
+      console.error(err);
+      res.json({ success: false, message: err.message });
+    }
 };
 
 exports.addInvoice = async (req, res) => {
