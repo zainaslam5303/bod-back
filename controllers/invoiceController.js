@@ -44,8 +44,9 @@ exports.getMerchantBalance = async (req,res)=>{
     try {
       const [results] = await sequelize.query(`
             SELECT 
+            m.id AS merchant_id,
             m.name AS merchant_name,
-            SUM(CASE WHEN i.oil_type = 'sarsoo' THEN i.unsettled_amount ELSE 0 END) AS sarsoo,
+            SUM(CASE WHEN i.oil_type = 'sarso' THEN i.unsettled_amount ELSE 0 END) AS sarsoo,
             SUM(CASE WHEN i.oil_type = 'pakwan' THEN i.unsettled_amount ELSE 0 END) AS pakwan,
             SUM(CASE WHEN i.oil_type = 'tilli' THEN i.unsettled_amount ELSE 0 END) AS tilli,
             SUM(i.unsettled_amount) AS total

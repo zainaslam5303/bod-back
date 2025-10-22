@@ -156,6 +156,7 @@ exports.addPayment = async (req, res) => {
         amount: Number(data.amount),
         settled_amount: totalSettled,
         unsettled_amount: remainingPayment,
+        date: data.date,
       };
 
       const payment = await Payment.create(paymentData, { transaction: t });
