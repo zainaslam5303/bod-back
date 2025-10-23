@@ -36,14 +36,14 @@ exports.verify = async (req, res) => {
 
     const decoded = jwt.verify(token, jwtKey);
     const user = await User.findByPk(decoded.id, {
-      attributes: ["id", "username", "email", "first_name", "last_name"]
+      attributes: ["id", "username", "first_name", "last_name"]
     });
 
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
     res.json({ success: true, user });
   } catch (err) {
-    res.status(401).json({ success: false, message: "Invalid Token" });
+    res.status(401).json({ success: false, message: "Invalid Token",err });
   }
 };
 
