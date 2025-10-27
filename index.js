@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const { sequelize } = require("./models");
+const PORT = process.env.PORT || 5000;
 
 const app = express();
 app.use(cors());
@@ -18,4 +19,4 @@ sequelize.sync()
   .then(() => console.log("✅ Tables created"))
   .catch((err) => console.error("❌ Error creating tables:", err));
 
-app.listen(5000, () => console.log("🚀 Server running on port 5000"));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
