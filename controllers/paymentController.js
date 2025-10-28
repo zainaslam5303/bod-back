@@ -110,6 +110,17 @@ exports.addPayment = async (req, res) => {
 
     } else {
       // 🔥 General payment: settle all invoices for this merchant & oil_type
+      const paymentData = {
+        merchant_id: data.merchant_id,
+        description: data.description,
+        oil_type: data.oil_type,
+        amount: Number(data.amount),
+        date: data.date,
+      };
+    
+      const payment = await Payment.create(paymentData, { transaction: t });
+    
+      // 🔥 Fetch all unsettled invoices
       const invoices = await Invoice.findAll({
         where: {
           merchant_id: data.merchant_id,
@@ -118,60 +129,54 @@ exports.addPayment = async (req, res) => {
         },
         transaction: t,
       });
-
+    
       let remainingPayment = Number(data.amount);
       let totalSettled = 0;
-
+    
       for (const inv of invoices) {
         if (remainingPayment <= 0) break;
-
+    
         const unsettled = inv.unsettled_amount;
-        if (remainingPayment >= unsettled) {
-          inv.settled_amount += unsettled;
-          inv.unsettled_amount = 0;
-          remainingPayment -= unsettled;
-          totalSettled += unsettled;
-        } else {
-          inv.settled_amount += remainingPayment;
-          inv.unsettled_amount -= remainingPayment;
-          totalSettled += remainingPayment;
-          remainingPayment = 0;
-        }
-
+        const settledNow = Math.min(unsettled, remainingPayment);
+    
+        inv.settled_amount += settledNow;
+        inv.unsettled_amount -= settledNow;
+    
+        remainingPayment -= settledNow;
+        totalSettled += settledNow;
+    
         await inv.save({ transaction: t });
+    
+        // 🧩 Add payment_id here directly
         await InvoiceSettlement.create(
           {
             merchant_id: data.merchant_id,
+            payment_id: payment.id, // ✅ Now available
             invoice_id: inv.id,
-            settled_amount: Math.min(unsettled, data.amount),
+            settled_amount: settledNow,
           },
           { transaction: t }
         );
       }
-
-      const paymentData = {
-        merchant_id: data.merchant_id,
-        description: data.description,
-        oil_type: data.oil_type,
-        amount: Number(data.amount),
-        settled_amount: totalSettled,
-        unsettled_amount: remainingPayment,
-        date: data.date,
-      };
-
-      const payment = await Payment.create(paymentData, { transaction: t });
-
-      const ledgerData = {
-        merchant_id: data.merchant_id,
-        payment_id: payment.id,
-        description: data.description,
-        oil_type: data.oil_type,
-        credit: Number(data.amount),
-      };
-
-      const ledger = await Ledger.create(ledgerData, { transaction: t });
-
-      await t.commit(); // ✅ everything OK
+    
+      // Update payment record with totals
+      payment.settled_amount = totalSettled;
+      payment.unsettled_amount = remainingPayment;
+      await payment.save({ transaction: t });
+    
+      // Ledger entry
+      const ledger = await Ledger.create(
+        {
+          merchant_id: data.merchant_id,
+          payment_id: payment.id,
+          description: data.description,
+          oil_type: data.oil_type,
+          credit: Number(data.amount),
+        },
+        { transaction: t }
+      );
+    
+      await t.commit();
       return res.json({
         success: true,
         message: "All unsettled invoices settled successfully",
@@ -300,12 +305,14 @@ exports.adjustData = async (req, res) => {
     let unsettledForPayment = 0;
 
     if (paidAmount >= invoice.unsettled_amount) {
+      settledAmount = invoice.unsettled_amount;
       settledForPayment = payment.settled_amount + invoice.unsettled_amount;
-      unsettledForPayment = paidAmount - payment.unsettled_amount;
+      unsettledForPayment = payment.unsettled_amount - settledAmount;
       invoice.settled_amount += invoice.unsettled_amount;
       invoice.unsettled_amount = 0;
     } else {
-      settledForPayment = paidAmount;
+      settledAmount = paidAmount;
+      settledForPayment = paidAmount + payment.settled_amount;
       unsettledForPayment = 0;
       invoice.settled_amount += paidAmount;
       invoice.unsettled_amount -= paidAmount;
@@ -324,7 +331,7 @@ exports.adjustData = async (req, res) => {
       merchant_id: data.merchant_id,
       invoice_id: data.invoice_id,
       payment_id: data.payment_id,
-      settled_amount: paidAmount,
+      settled_amount: settledAmount,
     };
     await InvoiceSettlement.create(invoiceSettlementData, { transaction: t });
 
