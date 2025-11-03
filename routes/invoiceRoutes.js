@@ -11,7 +11,7 @@ const {
 } = require("../controllers/invoiceController");
 
 router.get("/", verifyToken, getAllInvoices);
-router.get("/merchant-balance",getMerchantBalance)
+router.get("/merchant-balance", verifyToken, getMerchantBalance)
 router.post("/", verifyToken, addInvoice);
 router.get("/:id", verifyToken, getInvoiceById);
 router.put("/:id", verifyToken, updateInvoice);
