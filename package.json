@@ -6,8 +6,10 @@
     "jsonwebtoken": "^9.0.2",
     "mysql": "^2.18.1",
     "mysql2": "^3.15.1",
+    "mysqldump": "^3.2.0",
     "sequelize": "^6.37.7"
-  },"scripts": {
+  },
+  "scripts": {
     "start": "node server.js"
   }
 }

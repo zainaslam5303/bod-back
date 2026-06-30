@@ -2,13 +2,27 @@ const Merchant = require("../models/Merchant");
 
 exports.getAllMerchants = async (req, res) => {
   try {
-    const merchants = await Merchant.findAll();
+    const merchants = await Merchant.findAll({
+      where: {
+        status: 1
+      },
+      order: [['name', 'ASC']]
+    });
     res.json({ success: true, merchants });
   } catch (err) {
     res.json({ success: false, message: err.message });
   }
 };
-
+exports.getMerchants = async (req, res) => {
+  try {
+    const merchants = await Merchant.findAll({
+      order: [['name', 'ASC']]
+    });
+    res.json({ success: true, merchants });
+  } catch (err) {
+    res.json({ success: false, message: err.message });
+  }
+};
 exports.addMerchant = async (req, res) => {
   try {
     const exists = await Merchant.findOne({ where: { name: req.body.name } });

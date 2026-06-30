@@ -7,11 +7,13 @@ const {
   getInvoiceById,
   updateInvoice,
   deleteInvoice,
-  getMerchantBalance
+  getMerchantBalance,
+  getInvoiceSettlements
 } = require("../controllers/invoiceController");
 
 router.get("/", verifyToken, getAllInvoices);
 router.get("/merchant-balance", verifyToken, getMerchantBalance)
+router.get("/:id/settlements", verifyToken, getInvoiceSettlements);
 router.post("/", verifyToken, addInvoice);
 router.get("/:id", verifyToken, getInvoiceById);
 router.put("/:id", verifyToken, updateInvoice);

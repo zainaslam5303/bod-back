@@ -8,12 +8,14 @@ const {
   updatePayment,
   deletePayment,
   getAdjustmentData,
-  adjustData
+  adjustData,
+  getPaymentSettlements
 } = require("../controllers/paymentController");
 
 router.get("/get-adjustment-data", verifyToken, getAdjustmentData);
 router.post("/adjust-data", verifyToken, adjustData);
 router.get("/", verifyToken, getAllPayments);
+router.get("/:id/settlements", verifyToken, getPaymentSettlements);
 router.post("/", verifyToken, addPayment);
 router.get("/:id", verifyToken, getPaymentById);
 router.put("/:id", verifyToken, updatePayment);

@@ -6,10 +6,12 @@ const {
   addMerchant,
   getMerchantById,
   updateMerchant,
-  deleteMerchant
+  deleteMerchant,
+  getMerchants
 } = require("../controllers/merchantController");
 
 router.get("/", verifyToken, getAllMerchants);
+router.get("/merchants", verifyToken, getMerchants);
 router.post("/", verifyToken, addMerchant);
 router.get("/:id", verifyToken, getMerchantById);
 router.put("/:id", verifyToken, updateMerchant);

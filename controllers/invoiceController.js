@@ -1,40 +1,73 @@
 const Invoice = require("../models/Invoice");
 const Ledger = require("../models/Ledger");
 const Merchant = require("../models/Merchant");
+const InvoiceSettlement = require("../models/InvoiceSettlement");
 const { Op } = require("sequelize");
 const sequelize = require("../config/db");
 
 exports.getAllInvoices = async (req, res) => {
   try {
-    const { merchantId, settleCheck, oilType } = req.query; // 👈 both from query params
+    const { merchantId, settleCheck, oilType, page = 1, limit = 25, search = "" } = req.query;
 
-    // Build dynamic where condition
     const whereCondition = {};
-
-    // filter by merchant
     if (merchantId) {
       whereCondition.merchant_id = merchantId;
     }
-
-    // filter by unsettled amount only if settleCheck = 1
     if (settleCheck === "1") {
-      whereCondition.unsettled_amount = { [Op.gt]: 0 }; // only > 0
+      whereCondition.unsettled_amount = { [Op.gt]: 0 };
     }
-    
     if (oilType) {
-      whereCondition.oil_type = oilType; // only > 0
+      whereCondition.oil_type = oilType;
     }
 
-    const invoices = await Invoice.findAll({
-      where: whereCondition,
+    const parsedPage = Number.parseInt(page, 10);
+    const parsedLimit = Number.parseInt(limit, 10);
+    const safePage = Number.isNaN(parsedPage) || parsedPage < 1 ? 1 : parsedPage;
+    const safeLimit = Number.isNaN(parsedLimit) || parsedLimit < 1 ? 25 : Math.min(parsedLimit, 200);
+    const offset = (safePage - 1) * safeLimit;
+    const trimmedSearch = String(search || "").trim();
+
+    const searchCondition = trimmedSearch
+      ? {
+          [Op.or]: [
+            { description: { [Op.like]: `%${trimmedSearch}%` } },
+            { oil_type: { [Op.like]: `%${trimmedSearch}%` } },
+            { "$Merchant.name$": { [Op.like]: `%${trimmedSearch}%` } },
+          ],
+        }
+      : {};
+
+    const whereWithSearch = {
+      ...whereCondition,
+      ...searchCondition,
+    };
+
+    const { rows: invoices, count: totalItems } = await Invoice.findAndCountAll({
+      where: whereWithSearch,
       include: [
         {
           model: Merchant,
           attributes: ["name"],
         },
       ],
+      distinct: true,
+      limit: safeLimit,
+      offset,
+      order: [["date", "DESC"]],
     });
-    res.json({ success: true, invoices });
+
+    const totalPages = Math.max(1, Math.ceil(totalItems / safeLimit));
+
+    res.json({
+      success: true,
+      invoices,
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        totalItems,
+        totalPages,
+      },
+    });
   } catch (err) {
     res.json({ success: false, message: err.message });
   }
@@ -50,8 +83,8 @@ exports.getMerchantBalance = async (req,res)=>{
             SUM(CASE WHEN i.oil_type = 'pakwan' THEN i.unsettled_amount ELSE 0 END) AS pakwan,
             SUM(CASE WHEN i.oil_type = 'tilli' THEN i.unsettled_amount ELSE 0 END) AS tilli,
             SUM(i.unsettled_amount) AS total
-        FROM invoices i
-        INNER JOIN merchants m ON m.id = i.merchant_id
+        FROM Invoices i
+        INNER JOIN Merchants m ON m.id = i.merchant_id and m.status = 1
         WHERE i.unsettled_amount > 0
         GROUP BY m.name
         ORDER BY m.name;
@@ -102,32 +135,136 @@ exports.getInvoiceById = async (req, res) => {
 };
 
 exports.updateInvoice = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
-    const result = await Invoice.update(req.body, { where: { id: req.params.id } });
-    if (result[0] > 0) {
-      res.json({ success: true, message: "Invoice updated" });
-    } else {
-      res.json({ success: false, message: "Update failed" });
+    const invoice = await Invoice.findByPk(req.params.id, { transaction: t });
+    if (!invoice) {
+      await t.rollback();
+      return res.json({ success: false, message: "Invoice not found" });
     }
+
+    const {
+      merchant_id,
+      oil_type,
+      date,
+      description,
+      other_charges,
+      weight,
+      rate,
+    } = req.body;
+
+    const updates = {};
+    if (merchant_id !== undefined) updates.merchant_id = merchant_id;
+    if (oil_type !== undefined) updates.oil_type = oil_type;
+    if (date !== undefined) updates.date = date;
+    if (description !== undefined) updates.description = description;
+    if (other_charges !== undefined) updates.other_charges = Number(other_charges) || 0;
+
+    // Business rule requested: weight/rate editable only when settled_amount is zero
+    if ((weight !== undefined || rate !== undefined) && Number(invoice.settled_amount) !== 0) {
+      await t.rollback();
+      return res.json({
+        success: false,
+        message: "Weight and rate can only be edited when settled amount is zero",
+      });
+    }
+
+    const finalWeight = weight !== undefined ? Number(weight) : Number(invoice.weight);
+    const finalRate = rate !== undefined ? Number(rate) : Number(invoice.rate);
+    const finalOtherCharges =
+      updates.other_charges !== undefined
+        ? Number(updates.other_charges)
+        : Number(invoice.other_charges || 0);
+
+    if (weight !== undefined) updates.weight = finalWeight;
+    if (rate !== undefined) updates.rate = finalRate;
+
+    const newTotalAmount = (finalWeight * finalRate) + finalOtherCharges;
+    const settledAmount = Number(invoice.settled_amount || 0);
+    if (newTotalAmount < settledAmount) {
+      await t.rollback();
+      return res.json({
+        success: false,
+        message: "Total amount cannot be less than settled amount",
+      });
+    }
+
+    updates.total_amount = newTotalAmount;
+    updates.unsettled_amount = newTotalAmount - settledAmount;
+
+    await invoice.update(updates, { transaction: t });
+
+    await Ledger.update(
+      {
+        merchant_id: updates.merchant_id !== undefined ? updates.merchant_id : invoice.merchant_id,
+        oil_type: updates.oil_type !== undefined ? updates.oil_type : invoice.oil_type,
+        description: updates.description !== undefined ? updates.description : invoice.description,
+        debit: newTotalAmount,
+      },
+      { where: { invoice_id: invoice.id }, transaction: t }
+    );
+
+    await t.commit();
+    return res.json({ success: true, message: "Invoice and ledger updated successfully" });
   } catch (err) {
-    res.json({ success: false, message: err.message });
+    await t.rollback();
+    return res.json({ success: false, message: err.message });
   }
 };
 
 exports.deleteInvoice = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
-    // Delete ledger entries first (to maintain FK integrity if any)
-    await Ledger.destroy({ where: { invoice_id: req.params.id } });
+    const invoice = await Invoice.findByPk(req.params.id, { transaction: t });
+    if (!invoice) {
+      await t.rollback();
+      return res.json({ success: false, message: "Invoice not found" });
+    }
 
-    // Then delete the invoice
-    const result = await Invoice.destroy({ where: { id: req.params.id } });
+    if (Number(invoice.settled_amount || 0) > 0) {
+      await t.rollback();
+      return res.json({
+        success: false,
+        message: "Settled invoice cannot be deleted",
+      });
+    }
+
+    await Ledger.destroy({ where: { invoice_id: req.params.id }, transaction: t });
+    await InvoiceSettlement.destroy({ where: { invoice_id: req.params.id }, transaction: t });
+
+    const result = await Invoice.destroy({ where: { id: req.params.id }, transaction: t });
 
     if (result > 0) {
-      res.json({ success: true, message: "Invoice and related ledger entries deleted" });
+      await t.commit();
+      return res.json({
+        success: true,
+        message: "Invoice and related ledger entries deleted",
+      });
     } else {
-      res.json({ success: false, message: "Invoice not found" });
+      await t.rollback();
+      return res.json({ success: false, message: "Invoice not found" });
     }
   } catch (err) {
+    await t.rollback();
+    return res.json({ success: false, message: err.message });
+  }
+};
+
+exports.getInvoiceSettlements = async (req, res) => {
+  try {
+    const invoiceId = req.params.id;
+    
+    const settlements = await InvoiceSettlement.findAll({
+      where: { invoice_id: invoiceId },
+      order: [["created_date", "DESC"]],
+    });
+
+    res.json({
+      success: true,
+      settlements,
+    });
+  } catch (err) {
+    console.error("Error in getInvoiceSettlements:", err);
     res.json({ success: false, message: err.message });
   }
 };

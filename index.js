@@ -13,6 +13,7 @@ app.use("/merchants", require("./routes/merchantRoutes"));
 app.use("/invoice", require("./routes/invoiceRoutes"));
 app.use("/payment", require("./routes/paymentRoutes"));
 app.use("/ledger", require("./routes/ledgerRoutes"));
+app.use("/backup", require("./routes/backupRoutes"));
 
 // Sync DB
 sequelize.sync()

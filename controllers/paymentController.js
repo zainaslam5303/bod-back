@@ -10,21 +10,64 @@ const sequelize = require("../config/db");
 
 exports.getAllPayments = async (req, res) => {
   try {
-    const { merchantId } = req.query; // 👈 Get from query params
+    const { merchantId, oilType, page = 1, limit = 25, search = "" } = req.query;
 
-    // Build dynamic where condition
-    const whereCondition = merchantId ? { merchant_id: merchantId } : {};
+    const whereCondition = {};
+    if (merchantId) {
+      whereCondition.merchant_id = merchantId;
+    }
+    if (oilType) {
+      whereCondition.oil_type = oilType;
+    }
 
-    const payments = await Payment.findAll({
-      where: whereCondition,
+    const parsedPage = Number.parseInt(page, 10);
+    const parsedLimit = Number.parseInt(limit, 10);
+    const safePage = Number.isNaN(parsedPage) || parsedPage < 1 ? 1 : parsedPage;
+    const safeLimit = Number.isNaN(parsedLimit) || parsedLimit < 1 ? 25 : Math.min(parsedLimit, 200);
+    const offset = (safePage - 1) * safeLimit;
+    const trimmedSearch = String(search || "").trim();
+
+    const searchCondition = trimmedSearch
+      ? {
+          [Op.or]: [
+            { description: { [Op.like]: `%${trimmedSearch}%` } },
+            { oil_type: { [Op.like]: `%${trimmedSearch}%` } },
+            { "$Merchant.name$": { [Op.like]: `%${trimmedSearch}%` } },
+          ],
+        }
+      : {};
+
+    const whereWithSearch = {
+      ...whereCondition,
+      ...searchCondition,
+    };
+
+    const { rows: payments, count: totalItems } = await Payment.findAndCountAll({
+      where: whereWithSearch,
       include: [
         {
           model: Merchant,
           attributes: ["name"],
         },
       ],
+      distinct: true,
+      limit: safeLimit,
+      offset,
+      order: [["date", "DESC"], ["id", "DESC"]],
     });
-    res.json({ success: true, payments });
+
+    const totalPages = Math.max(1, Math.ceil(totalItems / safeLimit));
+
+    res.json({
+      success: true,
+      payments,
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        totalItems,
+        totalPages,
+      },
+    });
   } catch (err) {
     res.json({ success: false, message: err.message });
   }
@@ -115,6 +158,8 @@ exports.addPayment = async (req, res) => {
         description: data.description,
         oil_type: data.oil_type,
         amount: Number(data.amount),
+        settled_amount: 0,        // ✅ add this
+        unsettled_amount: Number(data.amount),
         date: data.date,
       };
     
@@ -342,6 +387,25 @@ exports.adjustData = async (req, res) => {
       payment,
     });
   } catch (err) {
+    res.json({ success: false, message: err.message });
+  }
+};
+
+exports.getPaymentSettlements = async (req, res) => {
+  try {
+    const paymentId = req.params.id;
+    
+    const settlements = await InvoiceSettlement.findAll({
+      where: { payment_id: paymentId },
+      order: [["created_date", "DESC"]],
+    });
+
+    res.json({
+      success: true,
+      settlements,
+    });
+  } catch (err) {
+    console.error("Error in getPaymentSettlements:", err);
     res.json({ success: false, message: err.message });
   }
 };
